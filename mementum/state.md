@@ -60,6 +60,18 @@ src/bbum/
 ### Commands — All Implemented
 `source add/remove/list` | `list <source>` | `add` | `remove [--with-deps]` | `status` | `update`
 
+## --as flag (task name override on install)
+
+`bbum add <source> <task> --as <name>` — installs the task under a custom name.
+
+- Only valid when installing a single task (error otherwise)
+- Alias applies only to the explicit task; deps keep their lib names
+- `.bbum.edn` stores `:lib-task <original-kw>` on aliased records
+- `config/lib-task-kw` helper: `(get task-rec :lib-task installed-kw)` — used by update
+- `update` looks up `(lib-task-kw installed-kw task-rec)` in new lib manifest; preserves alias in bb.edn
+- `status` shows `(lib: <original>)` in notes column
+- `:required-by` in implicit tasks stores the installed name (alias) of the requiring task
+
 ## Known Limitations / Future Work
 
 - `bb.edn` writes lose comments/formatting (pprint round-trip)

@@ -1,0 +1,7 @@
+{:sources {},
+ :tasks
+ {:ref-report
+  {:source :bb-task-lib,
+   :lib hugoduncan/bb-task-lib,
+   :install :explicit,
+   :lock #:local{:path "../../bb-task-lib/master"}}}}

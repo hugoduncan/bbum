@@ -1,4 +1,9 @@
-{:paths ["src"]
- :deps  {}
- :tasks {}
- :bbin/bin {:name "bbum" :main-opts ["-m" "bbum.main"]}}
+{:paths ["src" ".bbum/lib"],
+ :deps {},
+ :tasks
+ {ref-report
+  {:doc
+   "Report public fns used only by tests and fns that could be private",
+   :requires ([hugoduncan.bb-task-lib.ref-report :as ref-report]),
+   :task (ref-report/run)}},
+ :bbin/bin {:name "bbum", :main-opts ["-m" "bbum.main"]}}

@@ -31,33 +31,47 @@
         (println err)))
     (edn/read-string out)))
 
-(defn- ref-rows [{:keys [analysis project-root]}]
-  (let [files   (->> (keys analysis) (filter #(project-file? project-root %)) sort)
-        defs    (mapcat (fn [uri]
-                          (filter public-defn? (:var-definitions (get analysis uri))))
-                        files)
-        usages  (mapcat (fn [uri] (:var-usages (get analysis uri))) files)
-        grouped (group-by (fn [u] [(:to u) (:name u)]) usages)]
+(def ^:private unused-public-var-message-re
+  #"Unused public var '([^']+)'")
+
+(defn- unused-public-vars [{:keys [diagnostics]}]
+  (->> diagnostics
+       vals
+       (mapcat identity)
+       (keep (fn [{:keys [code message]}]
+               (when (= "clojure-lsp/unused-public-var" code)
+                 (second (re-find unused-public-var-message-re message)))))
+       set))
+
+(defn- ref-rows [{:keys [analysis project-root] :as dump}]
+  (let [files       (->> (keys analysis) (filter #(project-file? project-root %)) sort)
+        defs        (mapcat (fn [uri]
+                              (filter public-defn? (:var-definitions (get analysis uri))))
+                            files)
+        usages      (mapcat (fn [uri] (:var-usages (get analysis uri))) files)
+        grouped     (group-by (fn [u] [(:to u) (:name u)]) usages)
+        unused-vars (unused-public-vars dump)]
     (for [d defs
-          :let [k             [(:ns d) (:name d)]
-                refs          (remove #(and (= (:uri d) (:uri %))
-                                            (= (:name d) (:from-var %)))
-                                      (get grouped k []))
-                src-refs      (filter #(= :src (classify-uri (:uri %))) refs)
-                test-refs     (filter #(= :test (classify-uri (:uri %))) refs)
-                external-src  (filter #(and (= :src (classify-uri (:uri %)))
-                                            (not= (:ns d) (:from %)))
-                                      refs)
-                test-only?    (and (empty? src-refs) (seq test-refs))
-                privatize?    (and (seq src-refs) (empty? external-src))]]
-      {:var                 (str (:ns d) "/" (:name d))
+          :let [k            [(:ns d) (:name d)]
+                refs         (remove #(and (= (:uri d) (:uri %))
+                                           (= (:name d) (:from-var %)))
+                                     (get grouped k []))
+                src-refs     (filter #(= :src (classify-uri (:uri %))) refs)
+                test-refs    (filter #(= :test (classify-uri (:uri %))) refs)
+                external-src (filter #(and (= :src (classify-uri (:uri %)))
+                                           (not= (:ns d) (:from %)))
+                                     refs)
+                var-name     (str (:ns d) "/" (:name d))
+                test-only?   (and (empty? src-refs) (seq test-refs))
+                privatize?   (and (seq src-refs) (empty? external-src))]]
+      {:var                 var-name
        :src-ref-count       (count src-refs)
        :test-ref-count      (count test-refs)
        :src-ref-namespaces  (vec (sort (distinct (map :from src-refs))))
        :test-ref-namespaces (vec (sort (distinct (map :from test-refs))))
        :test-only?          test-only?
        :privatize?          privatize?
-       :unreferenced?       (and (empty? src-refs) (empty? test-refs))})))
+       :unused-public-var?  (contains? unused-vars var-name)})))
 
 (defn- print-section [title rows]
   (println)
@@ -77,14 +91,14 @@
   (let [rows           (sort-by :var (vec (ref-rows (load-lsp-dump))))
         test-only      (filterv :test-only? rows)
         privatize-only (filterv #(and (:privatize? %) (not (:test-only? %))) rows)
-        unreferenced   (filterv :unreferenced? rows)]
+        unreferenced   (filterv :unused-public-var? rows)]
     (println "Public function visibility report")
     (println "=================================")
     (println)
     (println "Rules:")
     (println "- test-only: no src references, at least one test reference")
     (println "- privatize candidate: all src references are from the defining namespace")
-    (println "- unreferenced: no src or test references")
+    (println "- unreferenced: flagged by clojure-lsp as clojure-lsp/unused-public-var")
     (print-section "Fns used only in tests" test-only)
     (print-section "Fns to privatize" privatize-only)
     (print-section "Unreferenced public fns" unreferenced)))

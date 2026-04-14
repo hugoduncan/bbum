@@ -4,6 +4,7 @@
   (:require [clojure.edn      :as edn]
             [clojure.java.io  :as io]
             [clojure.pprint   :as pprint]
+            [rewrite-clj.node :as n]
             [rewrite-clj.zip  :as z]))
 
 ;;; Low-level EDN I/O
@@ -111,28 +112,62 @@
   (or (z/get map-zloc k)
       (z/get (z/assoc map-zloc k empty-val) k)))
 
+(defn- z-climb-to-root
+  "Return zloc navigated up to the root (the node with no parent)."
+  [zloc]
+  (loop [loc zloc]
+    (if (nil? (z/up loc)) loc (recur (z/up loc)))))
+
+(defn- z-append-map-entry
+  "Append key k and value v to map-zloc, preceded by a newline separator.
+   When k already exists its value is replaced in-place (no extra whitespace).
+   Returns the map-zloc."
+  [map-zloc k v]
+  (if (z/get map-zloc k)
+    (z/assoc map-zloc k v)
+    (-> map-zloc
+        (z/append-child (n/newline-node "\n"))
+        (z/append-child k)
+        (z/append-child v))))
+
 (defn z-splice-tasks
   "Assoc each [sym task-def] from task-map into the :tasks map in the bb.edn
    top-level map zloc. Keys are coerced to symbols (babashka requires symbols).
-   Creates :tasks {} if absent. Returns the top-level map zloc."
+   Creates :tasks {} if absent. A newline is inserted before each new key.
+   Returns the top-level map zloc."
   [zloc task-map]
   (reduce
    (fn [top [k v]]
      (let [sym       (symbol (name k))
            tasks-loc (z-get-or-create top :tasks {})]
-       (-> tasks-loc (z/assoc sym v) z/up)))
+       (-> tasks-loc (z-append-map-entry sym v) z/up)))
    zloc
    task-map))
+
+(defn- z-remove-map-entry
+  "Surgically remove sym and its value from a tasks-map zipper rooted at tasks-zloc.
+   Works on tasks-zloc as a self-contained zipper so navigation back to the map
+   root is unambiguous. Returns the (modified) root loc."
+  [tasks-zloc sym]
+  (if-let [val-loc (z/get tasks-zloc sym)]
+    (-> val-loc z/remove z/remove z-climb-to-root)
+    tasks-zloc))
 
 (defn z-remove-tasks
   "Remove task-keys from the :tasks map in the bb.edn top-level map zloc.
    Keys are coerced to symbols. No-op when :tasks is absent or key is missing.
+   Preserves all formatting outside the :tasks value node.
    Returns the top-level map zloc."
   [zloc task-keys]
   (if-let [tasks-loc (z/get zloc :tasks)]
-    (let [syms (set (map (comp symbol name) task-keys))]
+    (let [syms         (map (comp symbol name) task-keys)
+          new-tasks-str (reduce
+                         (fn [s sym]
+                           (-> s z/of-string (z-remove-map-entry sym) z/root-string))
+                         (z/string tasks-loc)
+                         syms)]
       (-> tasks-loc
-          (z/edit #(apply dissoc % syms))
+          (z/replace (z/node (z/of-string new-tasks-str)))
           z/up))
     zloc))
 

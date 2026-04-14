@@ -169,7 +169,25 @@
           result (-> input z/of-string
                      (config/z-splice-tasks {'lint {:doc "Lint"}})
                      z/root-string)]
-      (is (clojure.string/starts-with? result ";; my project")))))
+      (is (clojure.string/starts-with? result ";; my project"))))
+
+  (testing "newline separates new task from preceding content"
+    ;; Without the newline fix, the new key would be jammed directly after the
+    ;; closing brace of the previous value with no whitespace.
+    (let [result (-> "{:tasks {existing {:doc \"E\"}}}" z/of-string
+                     (config/z-splice-tasks {'added {:doc "A"}})
+                     z/root-string)]
+      (is (re-find #"\}\s*\nadded" result)
+          "new task key must be preceded by a newline")))
+
+  (testing "replacing an existing task does not insert extra whitespace"
+    (let [input  "{:tasks {lint {:doc \"old\"}}}"
+          result (-> input z/of-string
+                     (config/z-splice-tasks {'lint {:doc "new"}})
+                     z/root-string)]
+      (is (= {:doc "new"} (-> result z/of-string (z/get :tasks) (z/get 'lint) z/sexpr)))
+      ;; No extra newline injected before an existing key
+      (is (not (re-find #"\nlint" result))))))
 
 ;;; z-remove-tasks
 
@@ -216,7 +234,16 @@
                      (config/z-remove-tasks ['lint])
                      z/root-string)]
       (is (clojure.string/starts-with? result ";; project"))
-      (is (clojure.string/includes? result ":paths [\"src\"]")))))
+      (is (clojure.string/includes? result ":paths [\"src\"]"))))
+
+  (testing "surviving tasks retain their original token text"
+    ;; z/edit + coerce would reformat remaining tasks; surgical removal must not.
+    (let [input  "{:tasks {kept {:doc \"K\"\n              :task (kept/run)}\n         gone {}}}"
+          result (-> input z/of-string
+                     (config/z-remove-tasks ['gone])
+                     z/root-string)]
+      (is (clojure.string/includes? result ":doc \"K\"\n              :task (kept/run)")
+          "multi-line formatting of surviving task is unchanged"))))
 
 ;;; z-ensure-path
 

@@ -177,8 +177,19 @@
     (let [result (-> "{:tasks {existing {:doc \"E\"}}}" z/of-string
                      (config/z-splice-tasks {'added {:doc "A"}})
                      z/root-string)]
-      (is (re-find #"\}\s*\nadded" result)
-          "new task key must be preceded by a newline")))
+      (is (re-find #"\}\s*\nadded " result)
+          "new task key must be on a new line followed by a space then its value")))
+
+  (testing "complex task value is formatted across multiple lines"
+    ;; n/coerce produces a single-line compact node; pprint-node must be used instead.
+    (let [task-def {:doc     "A task"
+                   :requires '([some.ns :as s])
+                   :task    '(s/run)}
+          result   (-> "{:tasks {}}" z/of-string
+                       (config/z-splice-tasks {'my-task task-def})
+                       z/root-string)]
+      (is (> (count (clojure.string/split-lines result)) 1)
+          "value with multiple keys should span more than one line")))
 
   (testing "replacing an existing task does not insert extra whitespace"
     (let [input  "{:tasks {lint {:doc \"old\"}}}"

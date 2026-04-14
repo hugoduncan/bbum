@@ -118,8 +118,20 @@
   (loop [loc zloc]
     (if (nil? (z/up loc)) loc (recur (z/up loc)))))
 
+(defn- pprint-node
+  "Return a rewrite-clj node for v formatted via pprint.
+   Produces multi-line output for complex values rather than the compact
+   single-line representation that n/coerce generates."
+  [v]
+  (-> v
+      (pprint/write :stream nil)
+      clojure.string/trim-newline
+      z/of-string
+      z/node))
+
 (defn- z-append-map-entry
   "Append key k and value v to map-zloc, preceded by a newline separator.
+   The value is formatted via pprint so complex maps/lists are readable.
    When k already exists its value is replaced in-place (no extra whitespace).
    Returns the map-zloc."
   [map-zloc k v]
@@ -128,7 +140,8 @@
     (-> map-zloc
         (z/append-child (n/newline-node "\n"))
         (z/append-child k)
-        (z/append-child v))))
+        (z/append-child (n/whitespace-node " "))
+        (z/append-child (pprint-node v)))))
 
 (defn z-splice-tasks
   "Assoc each [sym task-def] from task-map into the :tasks map in the bb.edn

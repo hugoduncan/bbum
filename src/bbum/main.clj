@@ -1,6 +1,7 @@
 (ns bbum.main
   (:require [bbum.cmd.add    :as cmd-add]
             [bbum.cmd.list   :as cmd-list]
+            [bbum.cmd.remove :as cmd-remove]
             [bbum.cmd.source :as cmd-source]))
 
 ;;; Command dispatch
@@ -31,7 +32,7 @@
       "source" (cmd-source/run rest-args)
       "list"   (cmd-list/run rest-args)
       "add"    (cmd-add/run rest-args)
-      "remove" (not-implemented "remove")
+      "remove" (cmd-remove/run rest-args)
       "status" (not-implemented "status")
       "update" (not-implemented "update")
       (do (usage)

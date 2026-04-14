@@ -72,6 +72,10 @@ src/bbum/
 - `status` shows `(lib: <original>)` in notes column
 - `:required-by` in implicit tasks stores the installed name (alias) of the requiring task
 
+## Bug Fixes Applied
+
+- **bb.edn task keys must be symbols** — `bb-edn-splice-tasks` and `bb-edn-remove-tasks` now coerce keyword→symbol at the write boundary; `update-source-tasks!` also fixed. Symptom: `bb tasks` silently showed "No tasks found."
+
 ## Known Limitations / Future Work
 
 - `bb.edn` writes lose comments/formatting (pprint round-trip)

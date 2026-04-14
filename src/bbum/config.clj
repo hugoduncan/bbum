@@ -1,9 +1,10 @@
 (ns bbum.config
   "Read/write all bbum file formats: global config, project manifest, bb.edn,
    library manifest. Also provides coord utilities and source merging."
-  (:require [clojure.edn    :as edn]
-            [clojure.java.io :as io]
-            [clojure.pprint  :as pprint]))
+  (:require [clojure.edn      :as edn]
+            [clojure.java.io  :as io]
+            [clojure.pprint   :as pprint]
+            [rewrite-clj.zip  :as z]))
 
 ;;; Low-level EDN I/O
 
@@ -99,6 +100,64 @@
   (if ((set (:paths bb-edn)) path)
     bb-edn
     (update bb-edn :paths (fnil conj []) path)))
+
+;;; Zipper-based bb.edn editing — preserves existing formatting and comments
+
+(defn- z-get-or-create
+  "Return a zipper loc for the map value at key k in map-zloc.
+   If k is absent, assocs it with empty-val first.
+   The returned loc is always the value node (inside the map)."
+  [map-zloc k empty-val]
+  (or (z/get map-zloc k)
+      (z/get (z/assoc map-zloc k empty-val) k)))
+
+(defn z-splice-tasks
+  "Assoc each [sym task-def] from task-map into the :tasks map in the bb.edn
+   top-level map zloc. Keys are coerced to symbols (babashka requires symbols).
+   Creates :tasks {} if absent. Returns the top-level map zloc."
+  [zloc task-map]
+  (reduce
+   (fn [top [k v]]
+     (let [sym       (symbol (name k))
+           tasks-loc (z-get-or-create top :tasks {})]
+       (-> tasks-loc (z/assoc sym v) z/up)))
+   zloc
+   task-map))
+
+(defn z-remove-tasks
+  "Remove task-keys from the :tasks map in the bb.edn top-level map zloc.
+   Keys are coerced to symbols. No-op when :tasks is absent or key is missing.
+   Returns the top-level map zloc."
+  [zloc task-keys]
+  (if-let [tasks-loc (z/get zloc :tasks)]
+    (let [syms (set (map (comp symbol name) task-keys))]
+      (-> tasks-loc
+          (z/edit #(apply dissoc % syms))
+          z/up))
+    zloc))
+
+(defn z-ensure-path
+  "Ensure path string is present in the :paths vector of the bb.edn top-level
+   map zloc. Creates :paths [path] if absent. Returns the top-level map zloc."
+  [zloc path]
+  (if-let [paths-loc (z/get zloc :paths)]
+    (if (some #(= path %) (z/sexpr paths-loc))
+      zloc
+      (-> paths-loc (z/append-child path) z/up))
+    (z/assoc zloc :paths [path])))
+
+(defn update-bb-edn!
+  "Apply zipper transform fn f to bb.edn at root, writing the result back.
+   The file is read and written as a raw string — formatting and comments are
+   preserved except where f explicitly modifies the tree.
+   Falls back to '{}' if the file does not exist."
+  ([f]      (update-bb-edn! (project-root) f))
+  ([root f] (let [path    (bb-edn-path root)
+                  file    (io/file path)
+                  content (if (.exists file) (slurp file) "{}")
+                  result  (-> content z/of-string f z/root-string)]
+              (io/make-parents path)
+              (spit path result))))
 
 ;;; Library manifest — bbum.edn at a resolved local path
 

@@ -186,11 +186,12 @@
           (copy-files! task-set src-dir root)
           (let [task-entries (into {} (map (fn [[installed-kw {:keys [task-def]}]]
                                             [installed-kw (:task task-def)])
-                                          task-set))
-                new-bb-edn  (-> bb-edn
-                                (config/bb-edn-splice-tasks task-entries)
-                                (config/bb-edn-ensure-path ".bbum/lib"))]
-            (config/write-bb-edn root new-bb-edn))
+                                          task-set))]
+            (config/update-bb-edn! root
+              (fn [z]
+                (-> z
+                    (config/z-splice-tasks task-entries)
+                    (config/z-ensure-path ".bbum/lib")))))
           (let [new-entries  (build-manifest-entries
                               task-set source-kw (:lib lib-manifest) lock-coord)
                 new-manifest (update manifest :tasks merge new-entries)]

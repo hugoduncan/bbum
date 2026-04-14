@@ -83,7 +83,6 @@
     (let [root      (config/project-root)
           task-kw   (keyword task-name)
           manifest  (config/read-project-manifest root)
-          bb-edn    (config/read-bb-edn root)
           all-tasks (:tasks manifest {})]
 
       ;; Task must exist and be explicit
@@ -122,8 +121,8 @@
                   (fs/delete dest))))
 
             ;; Update bb.edn — remove task entries
-            (config/write-bb-edn root
-              (config/bb-edn-remove-tasks bb-edn removing-set))
+            (config/update-bb-edn! root
+              (fn [z] (config/z-remove-tasks z removing-set)))
 
             ;; Update .bbum.edn — remove tasks and clean up required-by
             (let [remaining (apply dissoc all-tasks removing-set)

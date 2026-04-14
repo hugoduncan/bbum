@@ -1,6 +1,7 @@
 (ns bbum.config-test
-  (:require [clojure.test :refer [deftest testing is]]
-            [bbum.config  :as config]))
+  (:require [clojure.test   :refer [deftest testing is]]
+            [bbum.config    :as config]
+            [rewrite-clj.zip :as z]))
 
 ;;; bb-edn-splice-tasks
 
@@ -124,3 +125,130 @@
       (is (false? (get-in result [:shared :shadowed?])))
       ;; Global-only source is not shadowed
       (is (false? (get-in result [:g-only :shadowed?]))))))
+
+;;; z-splice-tasks
+
+(deftest z-splice-tasks-adds-task-to-existing-tasks-map-test
+  (testing "adds a new task; preserves other keys and outer formatting"
+    (let [input  "{:paths [\"src\"], :tasks {}}"
+          result (-> input z/of-string
+                     (config/z-splice-tasks {'lint {:doc "Lint" :task '(lint/run)}})
+                     z/root-string)]
+      (is (= {:doc "Lint" :task '(lint/run)}
+             (-> result z/of-string (z/get :tasks) (z/get 'lint) z/sexpr)))
+      (is (clojure.string/includes? result ":paths [\"src\"]")
+          "outer :paths key is untouched")))
+
+  (testing "keyword keys are coerced to symbols"
+    (let [result (-> "{:tasks {}}" z/of-string
+                     (config/z-splice-tasks {:my-task {:doc "test"}})
+                     z/root-string
+                     z/of-string)]
+      (is (z/get (z/get result :tasks) 'my-task)
+          "installed key should be a symbol")))
+
+  (testing "creates :tasks {} when absent"
+    (let [result (-> "{:paths [\"src\"]}" z/of-string
+                     (config/z-splice-tasks {'hello {:doc "hi"}})
+                     z/root-string
+                     z/of-string)]
+      (is (z/get (z/get result :tasks) 'hello))))
+
+  (testing "splices multiple tasks in one call"
+    (let [result (-> "{:tasks {}}" z/of-string
+                     (config/z-splice-tasks {'a {:doc "A"} 'b {:doc "B"}})
+                     z/root-string
+                     z/of-string
+                     (z/get :tasks)
+                     z/sexpr)]
+      (is (= #{'a 'b} (set (keys result))))))
+
+  (testing "existing content outside :tasks is preserved literally"
+    ;; A comment before :paths must survive the splice
+    (let [input  ";; my project\n{:paths [\"src\"] :tasks {}}"
+          result (-> input z/of-string
+                     (config/z-splice-tasks {'lint {:doc "Lint"}})
+                     z/root-string)]
+      (is (clojure.string/starts-with? result ";; my project")))))
+
+;;; z-remove-tasks
+
+(deftest z-remove-tasks-removes-task-from-tasks-map-test
+  (testing "removes an existing task"
+    (let [input  "{:tasks {lint {:doc \"Lint\"} fmt {:doc \"Fmt\"}}}"
+          result (-> input z/of-string
+                     (config/z-remove-tasks ['lint])
+                     z/root-string
+                     z/of-string
+                     (z/get :tasks)
+                     z/sexpr)]
+      (is (not (contains? result 'lint)))
+      (is (contains? result 'fmt))))
+
+  (testing "removes multiple tasks"
+    (let [result (-> "{:tasks {a {} b {} c {}}}" z/of-string
+                     (config/z-remove-tasks [:a :b])
+                     z/root-string
+                     z/of-string
+                     (z/get :tasks)
+                     z/sexpr)]
+      (is (= #{'c} (set (keys result))))))
+
+  (testing "no-op when :tasks is absent"
+    (let [input "{:paths [\"src\"]}"
+          result (-> input z/of-string
+                     (config/z-remove-tasks ['missing])
+                     z/root-string)]
+      (is (= input result))))
+
+  (testing "keyword task-keys are coerced to symbols"
+    (let [result (-> "{:tasks {lint {}}}" z/of-string
+                     (config/z-remove-tasks [:lint])
+                     z/root-string
+                     z/of-string
+                     (z/get :tasks)
+                     z/sexpr)]
+      (is (empty? result))))
+
+  (testing "content outside :tasks is preserved literally"
+    (let [input  ";; project\n{:paths [\"src\"] :tasks {lint {}}}"
+          result (-> input z/of-string
+                     (config/z-remove-tasks ['lint])
+                     z/root-string)]
+      (is (clojure.string/starts-with? result ";; project"))
+      (is (clojure.string/includes? result ":paths [\"src\"]")))))
+
+;;; z-ensure-path
+
+(deftest z-ensure-path-test
+  (testing "appends path when :paths exists and is missing the entry"
+    (let [result (-> "{:paths [\"src\"]}" z/of-string
+                     (config/z-ensure-path ".bbum/lib")
+                     z/root-string
+                     z/of-string
+                     (z/get :paths)
+                     z/sexpr)]
+      (is (= ["src" ".bbum/lib"] result))))
+
+  (testing "idempotent when path is already present"
+    (let [input  "{:paths [\"src\" \".bbum/lib\"]}"
+          result (-> input z/of-string
+                     (config/z-ensure-path ".bbum/lib")
+                     z/root-string)]
+      (is (= input result))))
+
+  (testing "creates :paths when absent"
+    (let [result (-> "{}" z/of-string
+                     (config/z-ensure-path ".bbum/lib")
+                     z/root-string
+                     z/of-string
+                     (z/get :paths)
+                     z/sexpr)]
+      (is (= [".bbum/lib"] result))))
+
+  (testing "existing content outside :paths is preserved literally"
+    (let [input  ";; project\n{:tasks {}}"
+          result (-> input z/of-string
+                     (config/z-ensure-path ".bbum/lib")
+                     z/root-string)]
+      (is (clojure.string/starts-with? result ";; project")))))

@@ -96,9 +96,10 @@
    No filesystem modifications are made here."
   [task-set bb-edn root]
   ;; Task name conflicts
-  (let [existing-tasks (set (keys (:tasks bb-edn {})))]
+  ;; bb.edn stores symbol keys; compare by name to handle both keyword and symbol.
+  (let [existing-names (set (map name (keys (:tasks bb-edn {}))))]
     (doseq [[task-kw _] task-set]
-      (when (existing-tasks task-kw)
+      (when (existing-names (name task-kw))
         (throw (ex-info (str "Task already exists in bb.edn: " (name task-kw)
                              " — remove it first or choose a different source.")
                         {:task task-kw})))))

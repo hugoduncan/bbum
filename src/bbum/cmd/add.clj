@@ -101,7 +101,7 @@
     (doseq [[task-kw _] task-set]
       (when (existing-names (name task-kw))
         (throw (ex-info (str "Task already exists in bb.edn: " (name task-kw)
-                             " — remove it first or choose a different source.")
+                             " — remove it first, or use --as <name> to install under a different name.")
                         {:task task-kw})))))
 
   ;; File conflicts

@@ -25,4 +25,4 @@
   {:doc "Fail when any source file exceeds 800 lines (configurable)",
    :requires ([hugoduncan.bb-task-lib.file-lengths :as file-lengths]),
    :task (file-lengths/run)}},
- :bbin/bin {:name "bbum", :main-opts ["-m" "bbum.main"]}}
+ :bbin/bin {bbum {:main-opts ["-m" "bbum.main"]}}}

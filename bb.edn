@@ -1,22 +1,28 @@
-{:paths ["src" ".bbum/lib"]
- :deps  {}
-
+{:paths ["src" ".bbum/lib"],
+ :deps {},
  :tasks
- {:requires ([clojure.test :as t])
-
+ {:requires ([clojure.test :as t]),
   ref-report
-  {:doc      "Report public fns used only by tests and fns that could be private"
-   :requires ([hugoduncan.bb-task-lib.ref-report :as ref-report])
-   :task     (ref-report/run)}
-
+  {:doc
+   "Report public fns used only by tests and fns that could be private",
+   :requires ([hugoduncan.bb-task-lib.ref-report :as ref-report]),
+   :task (ref-report/run)},
   test
-  {:doc         "Run all tests"
-   :extra-paths ["test"]
-   :task        (do (require '[clojure.test :as t]
-                             'bbum.config-test
-                             'bbum.cmd.add-test
-                             'bbum.cmd.remove-test)
-                    (let [r (t/run-all-tests (re-pattern "bbum\\..*-test"))]
-                      (System/exit (if (pos? (+ (:fail r) (:error r))) 1 0))))}}
-
- :bbin/bin {:name "bbum" :main-opts ["-m" "bbum.main"]}}
+  {:doc "Run all tests",
+   :extra-paths ["test"],
+   :task
+   (do
+    (require
+     '
+     [clojure.test :as t]
+     'bbum.config-test
+     'bbum.cmd.add-test
+     'bbum.cmd.remove-test)
+    (let
+     [r (t/run-all-tests (re-pattern "bbum\\..*-test"))]
+     (System/exit (if (pos? (+ (:fail r) (:error r))) 1 0))))},
+  file-lengths
+  {:doc "Fail when any source file exceeds 800 lines (configurable)",
+   :requires ([hugoduncan.bb-task-lib.file-lengths :as file-lengths]),
+   :task (file-lengths/run)}},
+ :bbin/bin {:name "bbum", :main-opts ["-m" "bbum.main"]}}

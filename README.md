@@ -45,6 +45,25 @@ bbum source add pinned    git/url=https://github.com/org/bb-tasks git/sha=abc123
 
 See [SPEC.md](SPEC.md) for full documentation.
 
+## AI Skills
+
+Agent skills for bbum and bbum task library authoring are available via the
+[skills CLI](https://github.com/vercel-labs/skills):
+
+```sh
+# install all bbum skills
+npx skills add hugoduncan/bbum
+
+# install a specific skill
+npx skills add hugoduncan/bbum --skill bbum
+npx skills add hugoduncan/bbum --skill bbum-task-lib
+```
+
+| Skill | Description |
+|-------|-------------|
+| `bbum` | Using bbum — sources, install, remove, update, status |
+| `bbum-task-lib` | Authoring bbum-compatible task libraries |
+
 ---
 
 ## Creating a task library

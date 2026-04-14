@@ -1,0 +1,4 @@
+{:paths ["src"]
+ :deps  {}
+ :tasks {}
+ :bbin/bin {:name "bbum" :main-opts ["-m" "bbum.main"]}}

@@ -1,4 +1,5 @@
-(ns bbum.main)
+(ns bbum.main
+  (:require [bbum.cmd.source :as cmd-source]))
 
 ;;; Command dispatch
 
@@ -22,32 +23,26 @@
     (println (str "bbum: '" cmd "' not yet implemented")))
   (System/exit 1))
 
-(defn- run-source [args]
-  (not-implemented (str "source " (first args))))
-
-(defn- run-list [_args]
-  (not-implemented "list"))
-
-(defn- run-add [_args]
-  (not-implemented "add"))
-
-(defn- run-remove [_args]
-  (not-implemented "remove"))
-
-(defn- run-status [_args]
-  (not-implemented "status"))
-
-(defn- run-update [_args]
-  (not-implemented "update"))
-
-(defn -main [& args]
+(defn- run [args]
   (let [[cmd & rest-args] args]
     (case cmd
-      "source" (run-source rest-args)
-      "list"   (run-list rest-args)
-      "add"    (run-add rest-args)
-      "remove" (run-remove rest-args)
-      "status" (run-status rest-args)
-      "update" (run-update rest-args)
+      "source" (cmd-source/run rest-args)
+      "list"   (not-implemented "list")
+      "add"    (not-implemented "add")
+      "remove" (not-implemented "remove")
+      "status" (not-implemented "status")
+      "update" (not-implemented "update")
       (do (usage)
           (System/exit (if cmd 1 0))))))
+
+(defn -main [& args]
+  (try
+    (run args)
+    (catch clojure.lang.ExceptionInfo e
+      (binding [*out* *err*]
+        (println (str "Error: " (ex-message e))))
+      (System/exit 1))
+    (catch Exception e
+      (binding [*out* *err*]
+        (println (str "Unexpected error: " (.getMessage e))))
+      (System/exit 1))))

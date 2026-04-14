@@ -39,9 +39,11 @@
     (into {} (map (fn [lock] [lock (source/read-lib-manifest lock)]) locks))))
 
 (defn- task-files
-  "Return the :files list for task-kw from the appropriate lib manifest."
+  "Return the :files list for task-kw from the appropriate lib manifest.
+   Uses lib-task-kw so aliased tasks are looked up by their library name."
   [lib-manifests task-record task-kw]
-  (get-in lib-manifests [(:lock task-record) :tasks task-kw :files] []))
+  (let [lib-kw (config/lib-task-kw task-kw task-record)]
+    (get-in lib-manifests [(:lock task-record) :tasks lib-kw :files] [])))
 
 ;;; File safety
 

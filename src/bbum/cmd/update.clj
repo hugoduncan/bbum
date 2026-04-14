@@ -57,8 +57,9 @@
                     ;; Re-copy files (overwrite)
                     (copy-task-files! root src-dir task-def)
                     ;; Splice updated task entry under the installed (possibly aliased) name
+                    ;; bb.edn requires symbol keys; keyword→symbol here matches splice-tasks.
                     {:manifest-tasks (assoc-in manifest-tasks [installed-kw :lock] new-lock)
-                     :bb-tasks       (assoc bb-tasks installed-kw (:task task-def))}))
+                     :bb-tasks       (assoc bb-tasks (symbol (name installed-kw)) (:task task-def))}))
                 {:manifest-tasks all-tasks :bb-tasks (:tasks bb-edn {})}
                 task-kws)))))
 

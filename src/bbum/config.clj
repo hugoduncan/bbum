@@ -81,14 +81,17 @@
 ;;; bb.edn task and path management
 
 (defn bb-edn-splice-tasks
-  "Add task-map entries into bb.edn :tasks. Returns updated bb-edn map."
+  "Add task-map entries into bb.edn :tasks. Returns updated bb-edn map.
+   Task keys are coerced to symbols — babashka's task runner requires symbol keys."
   [bb-edn task-map]
-  (update bb-edn :tasks merge task-map))
+  (update bb-edn :tasks merge
+          (into {} (map (fn [[k v]] [(symbol (name k)) v]) task-map))))
 
 (defn bb-edn-remove-tasks
-  "Remove task-keys from bb.edn :tasks. Returns updated bb-edn map."
+  "Remove task-keys from bb.edn :tasks. Returns updated bb-edn map.
+   Accepts keyword or symbol task-keys."
   [bb-edn task-keys]
-  (update bb-edn :tasks #(apply dissoc % task-keys)))
+  (update bb-edn :tasks #(apply dissoc % (map (comp symbol name) task-keys))))
 
 (defn bb-edn-ensure-path
   "Ensure path string is present in bb.edn :paths. Returns updated bb-edn map."

@@ -118,30 +118,40 @@
   (loop [loc zloc]
     (if (nil? (z/up loc)) loc (recur (z/up loc)))))
 
-(defn- pprint-node
-  "Return a rewrite-clj node for v formatted via pprint.
-   Produces multi-line output for complex values rather than the compact
-   single-line representation that n/coerce generates."
-  [v]
+(defn- detect-task-indent
+  "Infer the indentation string used before task keys in the tasks map string
+   by scanning for the first newline-then-whitespace-then-non-whitespace pattern.
+   Defaults to a single space when no existing tasks are present."
+  [tasks-str]
+  (or (second (re-find #"\n(\s+)\S" tasks-str)) " "))
+
+(defn- format-task-value
+  "Pretty-print v and re-indent every continuation line by indent-str so that
+   map keys align correctly when the value is placed after a leading indent-str."
+  [v indent-str]
   (-> v
       (pprint/write :stream nil)
       clojure.string/trim-newline
-      z/of-string
-      z/node))
+      (clojure.string/replace #"\n" (str "\n" indent-str))))
 
 (defn- z-append-map-entry
-  "Append key k and value v to map-zloc, preceded by a newline separator.
-   The value is formatted via pprint so complex maps/lists are readable.
+  "Append key k and value v to map-zloc.
+   Detects existing sibling indentation and places the key on its own indented
+   line, then the pprint-formatted value on the next line at the same indent.
    When k already exists its value is replaced in-place (no extra whitespace).
    Returns the map-zloc."
   [map-zloc k v]
   (if (z/get map-zloc k)
     (z/assoc map-zloc k v)
-    (-> map-zloc
-        (z/append-child (n/newline-node "\n"))
-        (z/append-child k)
-        (z/append-child (n/whitespace-node " "))
-        (z/append-child (pprint-node v)))))
+    (let [indent (detect-task-indent (z/string map-zloc))
+          v-str  (format-task-value v indent)]
+      (-> map-zloc
+          (z/append-child (n/newline-node "\n"))
+          (z/append-child (n/whitespace-node indent))
+          (z/append-child k)
+          (z/append-child (n/newline-node "\n"))
+          (z/append-child (n/whitespace-node indent))
+          (z/append-child (z/node (z/of-string v-str)))))))
 
 (defn z-splice-tasks
   "Assoc each [sym task-def] from task-map into the :tasks map in the bb.edn

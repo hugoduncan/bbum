@@ -171,25 +171,45 @@
                      z/root-string)]
       (is (clojure.string/starts-with? result ";; my project"))))
 
-  (testing "newline separates new task from preceding content"
-    ;; Without the newline fix, the new key would be jammed directly after the
-    ;; closing brace of the previous value with no whitespace.
-    (let [result (-> "{:tasks {existing {:doc \"E\"}}}" z/of-string
-                     (config/z-splice-tasks {'added {:doc "A"}})
-                     z/root-string)]
-      (is (re-find #"\}\s*\nadded " result)
-          "new task key must be on a new line followed by a space then its value")))
+  (testing "new task key is placed on its own indented line"
+    ;; Key must appear after a newline with the same leading whitespace as siblings.
+    ;; z/append-child inserts a trailing space before each subsequent child, so the
+    ;; key line looks like '\n  added ' in the raw string.
+    (let [tasks-map "{test\n  {:doc \"T\"}}"
+          input     (str "{:tasks " tasks-map "}")
+          result    (-> input z/of-string
+                        (config/z-splice-tasks {'added {:doc "A"}})
+                        z/root-string)]
+      (is (re-find #"\n  added" result)
+          "new key must appear after a newline with detected indentation")))
 
-  (testing "complex task value is formatted across multiple lines"
-    ;; n/coerce produces a single-line compact node; pprint-node must be used instead.
-    (let [task-def {:doc     "A task"
-                   :requires '([some.ns :as s])
-                   :task    '(s/run)}
-          result   (-> "{:tasks {}}" z/of-string
-                       (config/z-splice-tasks {'my-task task-def})
-                       z/root-string)]
-      (is (> (count (clojure.string/split-lines result)) 1)
-          "value with multiple keys should span more than one line")))
+  (testing "new task value is on its own indented line after the key"
+    (let [tasks-map "{test\n  {:doc \"T\"}}"
+          input     (str "{:tasks " tasks-map "}")
+          result    (-> input z/of-string
+                        (config/z-splice-tasks {'added {:doc "A"}})
+                        z/root-string)]
+      (is (re-find #"\n  added\s+\n\s*\{" result)
+          "value must follow the key on its own indented line")))
+
+  (testing "complex task value has aligned map keys"
+    ;; pprint + re-indent must align :requires and :task with :doc.
+    ;; Use a long doc string to ensure pprint wraps to multiple lines.
+    (let [task-def  {:doc     "Report public fns used only by tests and fns that could be private"
+                    :requires '([some.ns :as s])
+                    :task    '(s/run)}
+          tasks-map "{test\n  {:doc \"T\"}}"
+          lines     (-> (str "{:tasks " tasks-map "}") z/of-string
+                        (config/z-splice-tasks {'my-task task-def})
+                        z/root-string
+                        clojure.string/split-lines)
+          ;; Lines inside the new task value start with whitespace then ':'
+          key-cols  (->> lines
+                         (filter #(re-find #"^\s{3,}:" %))
+                         (map #(count (re-find #"^\s+" %))))]
+      (is (seq key-cols) "at least one indented key line should be present")
+      (is (apply = key-cols)
+          "all map keys in the value should be at the same column")))
 
   (testing "replacing an existing task does not insert extra whitespace"
     (let [input  "{:tasks {lint {:doc \"old\"}}}"

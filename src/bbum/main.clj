@@ -3,7 +3,8 @@
             [bbum.cmd.list   :as cmd-list]
             [bbum.cmd.remove :as cmd-remove]
             [bbum.cmd.source :as cmd-source]
-            [bbum.cmd.status :as cmd-status]))
+            [bbum.cmd.status :as cmd-status]
+            [bbum.cmd.update :as cmd-update]))
 
 ;;; Command dispatch
 
@@ -35,7 +36,7 @@
       "add"    (cmd-add/run rest-args)
       "remove" (cmd-remove/run rest-args)
       "status" (cmd-status/run rest-args)
-      "update" (not-implemented "update")
+      "update" (cmd-update/run rest-args)
       (do (usage)
           (System/exit (if cmd 1 0))))))
 

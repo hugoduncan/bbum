@@ -72,10 +72,26 @@ src/bbum/
 - `status` shows `(lib: <original>)` in notes column
 - `:required-by` in implicit tasks stores the installed name (alias) of the requiring task
 
+## Test Coverage
+
+22 tests / 88 assertions. Run with `bb test`.
+
+```
+test/bbum/
+  test_helpers.clj        — with-clean-env macro, make-project!, make-lib!, fixture data
+  config_test.clj         — unit tests for all pure config.clj functions
+  cmd/add_test.clj        — resolve-task-set / parse-args (via #') + integration
+  cmd/remove_test.clj     — orphaned-implicits / collect-removals (via #') + integration
+```
+
+Pattern for integration tests: `with-clean-env` overrides `user.dir` + `user.home` to
+isolated temp dirs, then calls `run` functions directly (no subprocess).
+
 ## Bug Fixes Applied
 
 - **bb.edn task keys must be symbols** — `bb-edn-splice-tasks` and `bb-edn-remove-tasks` now coerce keyword→symbol at the write boundary; `update-source-tasks!` also fixed. Symptom: `bb tasks` silently showed "No tasks found."
 - **remove with --as alias didn't delete files** — `task-files` in `remove.clj` used installed name as lib manifest key; fixed to use `config/lib-task-kw`.
+- **preflight task conflict check failed against symbol keys** — `preflight!` compared keyword `task-kw` against symbol keys in bb.edn; fixed to compare by `(name ...)` on both sides.
 
 ## Known Limitations / Future Work
 

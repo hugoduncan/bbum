@@ -107,6 +107,15 @@
         (throw (ex-info (str "No bbum.edn found at: " manifest-path)
                         {:path manifest-path})))))
 
+;;; Task alias utilities
+
+(defn lib-task-kw
+  "Return the library task keyword for an installed task record.
+   When no alias was set the installed key and lib key are the same,
+   so this falls back to installed-kw."
+  [installed-kw task-rec]
+  (get task-rec :lib-task installed-kw))
+
 ;;; Source coord utilities
 
 (defn coord-type

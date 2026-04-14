@@ -13,50 +13,60 @@
   (contains? (:tasks lib-manifest) task-kw))
 
 (defn- resolve-task-set
-  "Given a lib manifest and a seq of explicitly requested task keywords,
-   returns a map of all tasks to install:
-     {task-kw {:install :explicit|:implicit :required-by [kw...] :task-def {...}}}
+  "Given a lib manifest, a seq of lib-task keywords to install, and an alias-map
+   (lib-kw → installed-kw for explicitly aliased tasks), returns:
+     {installed-kw {:install    :explicit|:implicit
+                    :lib-task   lib-kw          ; only present when aliased
+                    :required-by [installed-kw] ; implicit only
+                    :task-def   {...}}}
+   Deps are always installed under their lib names (no alias propagation to deps).
    Throws on unknown tasks, missing deps, or dependency cycles."
-  [lib-manifest explicit-kws]
+  [lib-manifest explicit-lib-kws alias-map]
   (let [lib-tasks (:tasks lib-manifest {})]
-    ;; Validate all explicitly requested tasks exist
-    (doseq [kw explicit-kws]
+    ;; Validate all explicitly requested tasks exist in the library
+    (doseq [kw explicit-lib-kws]
       (when-not (get lib-tasks kw)
         (throw (ex-info (str "Task not found in library: " (name kw))
                         {:task kw :available (keys lib-tasks)}))))
 
     (let [result (atom {})]
-      ;; Register explicit tasks first
-      (doseq [kw explicit-kws]
-        (swap! result assoc kw {:install :explicit :task-def (get lib-tasks kw)}))
+      ;; Register explicit tasks under their installed (possibly aliased) name
+      (doseq [lib-kw explicit-lib-kws]
+        (let [installed-kw (get alias-map lib-kw lib-kw)]
+          (swap! result assoc installed-kw
+                 (cond-> {:install :explicit :task-def (get lib-tasks lib-kw)}
+                   (not= lib-kw installed-kw) (assoc :lib-task lib-kw)))))
 
-      ;; DFS to collect implicit deps
-      (letfn [(visit! [task-kw requirer-kw path]
-                (when (contains? (set path) task-kw)
+      ;; DFS to collect implicit deps.
+      ;; Deps use their lib name as both lib name and installed name.
+      ;; requirer-installed-kw is the installed name of the requiring task.
+      (letfn [(visit! [lib-kw requirer-installed-kw path]
+                (when (contains? (set path) lib-kw)
                   (throw (ex-info
                           (str "Dependency cycle: "
-                               (str/join " → " (map name (conj path task-kw))))
-                          {:cycle (conj path task-kw)})))
-                (let [task-def (get lib-tasks task-kw)]
+                               (str/join " → " (map name (conj path lib-kw))))
+                          {:cycle (conj path lib-kw)})))
+                (let [task-def (get lib-tasks lib-kw)]
                   (when-not task-def
-                    (throw (ex-info (str "Dependency not found in library: " (name task-kw))
-                                    {:task task-kw :required-by requirer-kw})))
-                  (if-let [existing (get @result task-kw)]
-                    ;; Already tracked — extend required-by if implicit
+                    (throw (ex-info (str "Dependency not found in library: " (name lib-kw))
+                                    {:task lib-kw :required-by requirer-installed-kw})))
+                  (if-let [existing (get @result lib-kw)]
+                    ;; Already tracked — extend required-by list if implicit
                     (when (= :implicit (:install existing))
-                      (swap! result update-in [task-kw :required-by] conj requirer-kw))
-                    ;; New — register as implicit then recurse
-                    (do (swap! result assoc task-kw
+                      (swap! result update-in [lib-kw :required-by] conj requirer-installed-kw))
+                    ;; New dep — register as implicit, then recurse into its deps
+                    (do (swap! result assoc lib-kw
                                {:install     :implicit
-                                :required-by [requirer-kw]
+                                :required-by [requirer-installed-kw]
                                 :task-def    task-def})
                         (doseq [dep-kw (:depends task-def [])]
-                          (visit! dep-kw task-kw (conj path task-kw)))))))]
+                          (visit! dep-kw lib-kw (conj path lib-kw)))))))]
 
-        ;; Traverse deps of all explicit tasks
-        (doseq [kw explicit-kws]
-          (doseq [dep-kw (:depends (get lib-tasks kw) [])]
-            (visit! dep-kw kw [kw]))))
+        ;; Start DFS from each explicit task, passing its installed name as the requirer
+        (doseq [lib-kw explicit-lib-kws]
+          (let [installed-kw (get alias-map lib-kw lib-kw)]
+            (doseq [dep-kw (:depends (get lib-tasks lib-kw) [])]
+              (visit! dep-kw installed-kw [lib-kw])))))
 
       @result)))
 
@@ -119,60 +129,72 @@
   "Build the .bbum.edn :tasks entries for all tasks in task-set."
   [task-set source-kw lib-name lock-coord]
   (into {}
-        (map (fn [[task-kw {:keys [install required-by]}]]
+        (map (fn [[task-kw {:keys [install required-by lib-task]}]]
                [task-kw (cond-> {:source  source-kw
                                  :lib     lib-name
                                  :install install
                                  :lock    lock-coord}
-                          (= :implicit install) (assoc :required-by required-by))])
+                          (= :implicit install) (assoc :required-by required-by)
+                          lib-task               (assoc :lib-task lib-task))])
              task-set)))
+
+;;; CLI parsing
+
+(defn- parse-args
+  "Parse add args: <source> <task> [<task>...] [--as <name>]
+   Returns {:source-name :task-names :alias-name}."
+  [args]
+  (let [[source-name & rest-args] args]
+    (when-not source-name
+      (throw (ex-info "Usage: bbum add <source> <task> [<task> ...] [--as <name>]" {})))
+    (let [as-idx     (first (keep-indexed #(when (= "--as" %2) %1) rest-args))
+          task-names (if as-idx (vec (take as-idx rest-args)) (vec rest-args))
+          alias-name (when as-idx (nth rest-args (inc as-idx) nil))]
+      (when (empty? task-names)
+        (throw (ex-info "At least one task name is required." {})))
+      (when (and as-idx (nil? alias-name))
+        (throw (ex-info "--as requires a name argument." {})))
+      (when (and alias-name (> (count task-names) 1))
+        (throw (ex-info "--as can only be used when installing a single task." {})))
+      {:source-name source-name
+       :task-names  task-names
+       :alias-name  alias-name})))
 
 ;;; Entry point
 
 (defn run
-  "bbum add <source> <task> [<task> ...]"
+  "bbum add <source> <task> [<task> ...] [--as <name>]"
   [args]
-  (let [[source-name & task-names] args]
-    (when-not source-name
-      (throw (ex-info "Usage: bbum add <source> <task> [<task> ...]" {})))
-    (when (empty? task-names)
-      (throw (ex-info "At least one task name is required." {})))
-
-    (let [root        (config/project-root)
-          source-kw   (keyword source-name)
-          task-kws    (mapv keyword task-names)
-          global      (config/read-global-config)
-          manifest    (config/read-project-manifest root)
-          bb-edn      (config/read-bb-edn root)
-          [coord _]   (source/resolve-source-name source-kw manifest global)]
-
-      (source/with-source-dir coord
-        (fn [src-dir]
-          (let [lib-manifest (config/read-lib-manifest src-dir)
-                task-set     (resolve-task-set lib-manifest task-kws)
-                lock-coord   (source/resolve-coord coord)]
-
-            ;; All checks before any writes
-            (preflight! task-set bb-edn root)
-
-            ;; Copy files
-            (copy-files! task-set src-dir root)
-
-            ;; Update bb.edn — splice tasks and ensure .bbum/lib path
-            (let [task-entries (into {} (map (fn [[kw {:keys [task-def]}]]
-                                               [kw (:task task-def)])
-                                             task-set))
-                  new-bb-edn   (-> bb-edn
-                                   (config/bb-edn-splice-tasks task-entries)
-                                   (config/bb-edn-ensure-path ".bbum/lib"))]
-              (config/write-bb-edn root new-bb-edn))
-
-            ;; Update .bbum.edn — record all installed tasks with locks
-            (let [new-entries  (build-manifest-entries
-                                task-set source-kw (:lib lib-manifest) lock-coord)
-                  new-manifest (update manifest :tasks merge new-entries)]
-              (config/write-project-manifest root new-manifest))
-
-            ;; Report
-            (doseq [[task-kw {:keys [install]}] task-set]
-              (println (str "Installed " (name install) " task: " (name task-kw))))))))))
+  (let [{:keys [source-name task-names alias-name]} (parse-args args)
+        root             (config/project-root)
+        source-kw        (keyword source-name)
+        explicit-lib-kws (mapv keyword task-names)
+        alias-map        (if alias-name
+                           {(keyword (first task-names)) (keyword alias-name)}
+                           {})
+        global           (config/read-global-config)
+        manifest         (config/read-project-manifest root)
+        bb-edn           (config/read-bb-edn root)
+        [coord _]        (source/resolve-source-name source-kw manifest global)]
+    (source/with-source-dir coord
+      (fn [src-dir]
+        (let [lib-manifest (config/read-lib-manifest src-dir)
+              task-set     (resolve-task-set lib-manifest explicit-lib-kws alias-map)
+              lock-coord   (source/resolve-coord coord)]
+          (preflight! task-set bb-edn root)
+          (copy-files! task-set src-dir root)
+          (let [task-entries (into {} (map (fn [[installed-kw {:keys [task-def]}]]
+                                            [installed-kw (:task task-def)])
+                                          task-set))
+                new-bb-edn  (-> bb-edn
+                                (config/bb-edn-splice-tasks task-entries)
+                                (config/bb-edn-ensure-path ".bbum/lib"))]
+            (config/write-bb-edn root new-bb-edn))
+          (let [new-entries  (build-manifest-entries
+                              task-set source-kw (:lib lib-manifest) lock-coord)
+                new-manifest (update manifest :tasks merge new-entries)]
+            (config/write-project-manifest root new-manifest))
+          (doseq [[installed-kw {:keys [install lib-task]}] task-set]
+            (println (str "Installed " (name install) " task: " (name installed-kw)
+                          (when lib-task
+                            (str " (from lib task: " (name lib-task) ")"))))))))))

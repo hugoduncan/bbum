@@ -41,22 +41,24 @@
 
 (defn- update-source-tasks!
   "Fetch source once, then update all tasks-to-update from it.
-   Returns updated manifest tasks map."
+   Returns updated {:manifest-tasks :bb-tasks}.
+   Uses config/lib-task-kw so aliased tasks are looked up by their library name."
   [root source-coord new-lock task-kws all-tasks bb-edn]
   (source/with-source-dir source-coord
     (fn [src-dir]
       (let [lib-manifest (config/read-lib-manifest src-dir)]
-        (reduce (fn [{:keys [manifest-tasks bb-tasks]} task-kw]
-                  (let [task-def (get-in lib-manifest [:tasks task-kw])]
+        (reduce (fn [{:keys [manifest-tasks bb-tasks]} installed-kw]
+                  (let [task-rec (get manifest-tasks installed-kw)
+                        lib-kw   (config/lib-task-kw installed-kw task-rec)
+                        task-def (get-in lib-manifest [:tasks lib-kw])]
                     (when-not task-def
-                      (throw (ex-info (str "Task no longer in library manifest: " (name task-kw))
-                                      {:task task-kw})))
+                      (throw (ex-info (str "Task no longer in library manifest: " (name lib-kw))
+                                      {:installed installed-kw :lib-task lib-kw})))
                     ;; Re-copy files (overwrite)
                     (copy-task-files! root src-dir task-def)
-                    ;; Update bb.edn task entry if changed
-                    (let [new-bb-task (:task task-def)]
-                      {:manifest-tasks (assoc-in manifest-tasks [task-kw :lock] new-lock)
-                       :bb-tasks       (assoc bb-tasks task-kw new-bb-task)})))
+                    ;; Splice updated task entry under the installed (possibly aliased) name
+                    {:manifest-tasks (assoc-in manifest-tasks [installed-kw :lock] new-lock)
+                     :bb-tasks       (assoc bb-tasks installed-kw (:task task-def))}))
                 {:manifest-tasks all-tasks :bb-tasks (:tasks bb-edn {})}
                 task-kws)))))
 

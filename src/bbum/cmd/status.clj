@@ -51,13 +51,21 @@
          :current-sha (abbrev current-sha)
          :status      status}))))
 
-;;; Implicit task annotation
+;;; Notes column — alias and implicit annotations
 
-(defn- implicit-note [task-rec]
-  (when (= :implicit (:install task-rec))
-    (str "(implicit, required-by: "
-         (str/join ", " (map name (:required-by task-rec)))
-         ")")))
+(defn- task-notes
+  "Compose the notes column for a task row.
+   Shows alias origin and/or implicit required-by, whichever apply."
+  [task-rec]
+  (let [parts (cond-> []
+                (:lib-task task-rec)
+                (conj (str "lib: " (name (:lib-task task-rec))))
+
+                (= :implicit (:install task-rec))
+                (conj (str "implicit, required-by: "
+                           (str/join ", " (map name (:required-by task-rec))))))]
+    (when (seq parts)
+      (str "(" (str/join "; " parts) ")"))))
 
 ;;; Entry point
 
@@ -82,7 +90,7 @@
                                {:locked-sha  (sha-display (:lock task-rec))
                                 :current-sha "?"
                                 :status      :unknown})
-                             note         (implicit-note task-rec)]
+                             note         (task-notes task-rec)]
                          [(name task-kw)
                           (name source-kw)
                           locked-sha

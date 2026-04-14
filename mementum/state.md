@@ -75,9 +75,11 @@ src/bbum/
 ## Bug Fixes Applied
 
 - **bb.edn task keys must be symbols** — `bb-edn-splice-tasks` and `bb-edn-remove-tasks` now coerce keyword→symbol at the write boundary; `update-source-tasks!` also fixed. Symptom: `bb tasks` silently showed "No tasks found."
+- **remove with --as alias didn't delete files** — `task-files` in `remove.clj` used installed name as lib manifest key; fixed to use `config/lib-task-kw`.
 
 ## Known Limitations / Future Work
 
 - `bb.edn` writes lose comments/formatting (pprint round-trip)
+- `bbum remove` leaves empty parent directories in `.bbum/lib/` after deleting the last file
 - No `bbum update` "up to date" message for local sources (always re-copies per spec)
 - Git sha-pinned source fetching falls back to full clone if server rejects fetch-by-sha

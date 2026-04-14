@@ -8,20 +8,38 @@ Updated: 2026-04-13
 A package manager for babashka tasks. Installs tasks from libraries into projects, tracking sources and versions.
 
 Repo: `/Users/duncan/projects/hugoduncan/bb-task-lib/master`  
-Git: 2 commits — spec + plan only. **No implementation code yet.**
+Git: 10 commits — spec, plan, and **full implementation**.
 
 ## Phase
 
-🎯 **Pre-implementation** — spec and plan are complete, nothing built yet.
+✅ **Implementation complete** — all 9 plan steps done and committed.
 
-Next logical step: scaffold the project (bb.edn, src/bbum/, bbin entry point).
+## Source Layout
 
-## Key Files
+```
+src/bbum/
+  main.clj          — CLI entry point, command dispatch, error handler
+  config.clj        — all EDN file I/O (global config, project manifest, bb.edn, lib manifest)
+  source.clj        — coord resolution, git ls-remote, with-source-dir, lib manifest fetch
+  print.clj         — column-aligned table printing
+  cmd/
+    source.clj      — source add/remove/list
+    list.clj        — list tasks in a source
+    add.clj         — install tasks (dep resolution, preflight, file copy, manifest write)
+    remove.clj      — remove tasks (orphan detection, --with-deps, file cleanup)
+    status.clj      — task status table (ok/outdated/pinned/local, exit 1 on outdated)
+    update.clj      — re-resolve coords, overwrite files, update locks
+```
 
-| File | Purpose |
-|------|---------|
-| `SPEC.md` | Full spec: concepts, file formats, commands, conflict rules |
-| `PLAN.md` | 9-step implementation plan |
+## Key Design Decisions
+
+- **Config**: `config.clj` owns all file I/O (read-edn/write-edn, project-root walk)
+- **Source resolution**: `resolve-coord` for locking, `with-source-dir` for file access
+- **Git**: shallow clone for branch/tag, fetch-by-sha for pinned (with full-clone fallback)
+- **Add pre-flight**: all conflict checks (task names + files) before any write
+- **Remove**: `:required-by` tracks which explicit tasks own each implicit; orphan detection is recursive
+- **Update**: groups tasks by source → one clone per unique source; local sources always re-copy
+- **bb.edn round-trip**: read with `clojure.edn/read-string`, write with `pprint` (loses comments — known limitation)
 
 ## Architecture (from spec)
 
@@ -39,28 +57,11 @@ Next logical step: scaffold the project (bb.edn, src/bbum/, bbin entry point).
 {:git/url "..." :git/sha "abc123"}                           ; pinned, never floats
 ```
 
-### File Layout
-- `.bbum.edn` — project manifest (sources, tasks, locks)
-- `~/.bbum/config.edn` — global sources
-- `.bbum/lib/` — installed task files (committed to VCS)
-- `bbum.edn` — library manifest (in a library project)
-
-### Commands
+### Commands — All Implemented
 `source add/remove/list` | `list <source>` | `add` | `remove [--with-deps]` | `status` | `update`
 
-## Implementation Plan (PLAN.md)
-1. Project scaffold
-2. Config layer (read/write all file formats, schemas)
-3. Source resolution (local / git branch / tag / sha)
-4. `bbum source` commands
-5. `bbum list`
-6. `bbum add`
-7. `bbum remove`
-8. `bbum status`
-9. `bbum update`
+## Known Limitations / Future Work
 
-## Notes
-- All-or-nothing install (pre-flight before any writes)
-- Explicit vs implicit tasks tracked in `.bbum.edn`
-- bbin installable: `bbin install io.github.hugoduncan/bbum`
-- `.bbum/lib/` is committed — clone-and-go without bbum
+- `bb.edn` writes lose comments/formatting (pprint round-trip)
+- No `bbum update` "up to date" message for local sources (always re-copies per spec)
+- Git sha-pinned source fetching falls back to full clone if server rejects fetch-by-sha

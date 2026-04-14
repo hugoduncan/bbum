@@ -7,14 +7,14 @@
 
 ;;; Low-level EDN I/O
 
-(defn read-edn
+(defn- read-edn
   "Read EDN from path. Returns nil if the file does not exist."
   [path]
   (let [f (io/file path)]
     (when (.exists f)
       (edn/read-string (slurp f)))))
 
-(defn write-edn
+(defn- write-edn
   "Write data as pretty-printed EDN to path. Creates parent directories."
   [path data]
   (io/make-parents path)
@@ -39,7 +39,7 @@
 
 ;;; Global config — ~/.bbum/config.edn
 
-(defn global-config-path []
+(defn- global-config-path []
   (str (System/getProperty "user.home") "/.bbum/config.edn"))
 
 (defn read-global-config []
@@ -51,7 +51,7 @@
 
 ;;; Project manifest — <root>/.bbum.edn
 
-(defn project-manifest-path
+(defn- project-manifest-path
   ([]     (project-manifest-path (project-root)))
   ([root] (str root "/.bbum.edn")))
 
@@ -66,7 +66,7 @@
 
 ;;; bb.edn — <root>/bb.edn
 
-(defn bb-edn-path
+(defn- bb-edn-path
   ([]     (bb-edn-path (project-root)))
   ([root] (str root "/bb.edn")))
 
@@ -131,11 +131,6 @@
     (:git/branch coord) :git/branch
     (:git/tag    coord) :git/tag
     :else (throw (ex-info "Unrecognised coord type" {:coord coord}))))
-
-(defn floats?
-  "True if the coord is floating — i.e. may resolve to a different sha over time."
-  [coord]
-  (contains? #{:git/branch :git/tag} (coord-type coord)))
 
 ;;; Effective sources (project overrides global)
 

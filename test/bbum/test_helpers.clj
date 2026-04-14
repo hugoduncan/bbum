@@ -1,7 +1,8 @@
 (ns bbum.test-helpers
   "Shared test infrastructure: environment isolation and fixture builders."
-  (:require [babashka.fs :as fs]
-            [bbum.config :as config]))
+  (:require [babashka.fs     :as fs]
+            [bbum.config     :as config]
+            [clojure.pprint  :as pprint]))
 
 ;;; Environment isolation
 
@@ -28,15 +29,15 @@
 (defn make-project!
   "Write a minimal bb.edn and empty .bbum.edn into root."
   [root]
-  (config/write-edn (str root "/bb.edn") {:paths ["src"] :tasks {}})
-  (config/write-edn (str root "/.bbum.edn") {:sources {} :tasks {}}))
+  (config/write-bb-edn      root {:paths ["src"] :tasks {}})
+  (config/write-project-manifest root {:sources {} :tasks {}}))
 
 (defn make-lib!
   "Write bbum.edn with lib-name and tasks into lib-dir.
    Creates stub .clj files for every path declared in :files."
   [lib-dir lib-name tasks]
-  (config/write-edn (str lib-dir "/bbum.edn")
-                    {:lib lib-name :tasks tasks})
+  (spit (str lib-dir "/bbum.edn")
+        (with-out-str (pprint/pprint {:lib lib-name :tasks tasks})))
   (doseq [[_ {:keys [files]}] tasks
           file-path            files]
     (let [dest (str lib-dir "/" file-path)]

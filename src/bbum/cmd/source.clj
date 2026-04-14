@@ -16,7 +16,7 @@
                       {:arg s})))
     [(keyword (subs s 0 idx)) (subs s (inc idx))]))
 
-(defn parse-coord-args
+(defn- parse-coord-args
   "Parse a seq of 'key=value' strings into a coord map."
   [args]
   (when (empty? args)
@@ -34,7 +34,7 @@
 
 ;;; source add
 
-(defn cmd-add
+(defn- cmd-add
   "bbum source add [--global] <name> <coord-kv ...>"
   [args]
   (let [global?    (= "--global" (first args))
@@ -55,7 +55,7 @@
 
 ;;; source remove
 
-(defn cmd-remove
+(defn- cmd-remove
   "bbum source remove [--global] <name>"
   [args]
   (let [global?   (= "--global" (first args))
@@ -82,7 +82,7 @@
 
 ;;; source list
 
-(defn cmd-list
+(defn- cmd-list
   "bbum source list"
   [_args]
   (let [global   (config/read-global-config)

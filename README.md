@@ -1,4 +1,4 @@
-# bbum — Babashka Universal Module Manager
+# bbum — A task package manager for babashka
 
 A package manager for babashka tasks. Installs tasks from libraries into projects,
 tracking sources and versions so tasks can be updated or removed.

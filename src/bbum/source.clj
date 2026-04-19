@@ -44,6 +44,41 @@
         (throw (ex-info (str "Tag not found: " tag " at " url)
                         {:url url :tag tag})))))
 
+;;; Coord validation
+
+(defn- required-keys-check
+  "Throw if any of required-keys are absent from coord."
+  [coord required-keys]
+  (let [missing (remove #(contains? coord %) required-keys)]
+    (when (seq missing)
+      (throw (ex-info (str "Coord is missing required keys: "
+                           (str/join ", " (map str missing)))
+                      {:coord coord :missing missing})))))
+
+(defn validate-coord
+  "Validate a coord structurally and, for git coords, verify reachability
+   via git ls-remote. Throws ex-info on failure."
+  [coord]
+  (case (config/coord-type coord)
+    :local
+    (do (required-keys-check coord [:local/path])
+        (when-not (fs/exists? (:local/path coord))
+          (throw (ex-info (str "Local source path not found: " (:local/path coord))
+                          {:path (:local/path coord)}))))
+
+    :git/sha
+    (required-keys-check coord [:git/url :git/sha])
+
+    :git/branch
+    (do (required-keys-check coord [:git/url :git/branch])
+        (resolve-branch-sha (:git/url coord) (:git/branch coord))
+        nil)
+
+    :git/tag
+    (do (required-keys-check coord [:git/url :git/tag])
+        (resolve-tag-sha (:git/url coord) (:git/tag coord))
+        nil)))
+
 ;;; Coord resolution
 
 (defn resolve-coord

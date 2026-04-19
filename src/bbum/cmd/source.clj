@@ -2,6 +2,7 @@
   "Implementation of the `bbum source` subcommands."
   (:require [bbum.config :as config]
             [bbum.print  :as bprint]
+            [bbum.source :as source]
             [clojure.string :as str]))
 
 ;;; Coord parsing from CLI key=value args
@@ -35,16 +36,19 @@
 ;;; source add
 
 (defn- cmd-add
-  "bbum source add [--global] <name> <coord-kv ...>"
+  "bbum source add [--global] [--no-verify] <name> <coord-kv ...>"
   [args]
-  (let [global?    (= "--global" (first args))
-        rest-args  (if global? (rest args) args)
+  (let [global?    (boolean (some #{"--global"}    args))
+        no-verify? (boolean (some #{"--no-verify"} args))
+        rest-args  (remove #{"--global" "--no-verify"} args)
         name-str   (first rest-args)
         coord-args (rest rest-args)]
     (when-not name-str
-      (throw (ex-info "Usage: bbum source add [--global] <name> <key=value ...>" {})))
+      (throw (ex-info "Usage: bbum source add [--global] [--no-verify] <name> <key=value ...>" {})))
     (let [name-kw (keyword name-str)
           coord   (parse-coord-args coord-args)]
+      (when-not no-verify?
+        (source/validate-coord coord))
       (if global?
         (do (config/write-global-config
              (assoc-in (config/read-global-config) [:sources name-kw] coord))

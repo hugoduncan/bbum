@@ -9,10 +9,12 @@
 
 (defn- git-ls-remote
   "Run `git ls-remote url patterns...`.
-   Returns map of ref-string → sha-string."
+   Returns map of ref-string → sha-string.
+   GIT_TERMINAL_PROMPT=0 prevents git from blocking on a credential prompt."
   [url & patterns]
   (let [{:keys [out exit err]}
-        (apply proc/sh "git" "ls-remote" url patterns)]
+        (apply proc/sh {:extra-env {"GIT_TERMINAL_PROMPT" "0"}}
+               "git" "ls-remote" url patterns)]
     (when-not (zero? exit)
       (throw (ex-info (str "git ls-remote failed for: " url)
                       {:url url :stderr err})))

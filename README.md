@@ -30,17 +30,17 @@ A coord identifies where a task library lives. Coords are specified as
 | Type | Example | Behaviour |
 |------|---------|-----------|
 | Local path | `local/path=../my-task-lib` | Read directly from the filesystem. Never locked. |
-| Git branch | `git/url=https://github.com/org/lib git/branch=master` | Resolved to a sha at install time and locked. Updated on `bbum update`. |
-| Git tag | `git/url=https://github.com/org/lib git/tag=v1.2.0` | Resolved to a sha at install time and locked. Updated if the tag moves. |
-| Git sha | `git/url=https://github.com/org/lib git/sha=abc123def` | Pinned. Never updated automatically. |
+| Git branch | `git/url=https://github.com/hugoduncan/bb-task-lib git/branch=master` | Resolved to a sha at install time and locked. Updated on `bbum update`. |
+| Git tag | `git/url=https://github.com/hugoduncan/bb-task-lib git/tag=v1.2.0` | Resolved to a sha at install time and locked. Updated if the tag moves. |
+| Git sha | `git/url=https://github.com/hugoduncan/bb-task-lib git/sha=abc123def` | Pinned. Never updated automatically. |
 
 Examples:
 
 ```sh
 bbum source add my-lint   local/path=../my-task-lib
-bbum source add org-tasks git/url=https://github.com/org/bb-tasks git/branch=master
-bbum source add stable    git/url=https://github.com/org/bb-tasks git/tag=v1.2.0
-bbum source add pinned    git/url=https://github.com/org/bb-tasks git/sha=abc123def456
+bbum source add org-tasks git/url=https://github.com/hugoduncan/bb-task-lib git/branch=master
+bbum source add stable    git/url=https://github.com/hugoduncan/bb-task-lib git/tag=v1.2.0
+bbum source add pinned    git/url=https://github.com/hugoduncan/bb-task-lib git/sha=abc123def456
 ```
 
 See [SPEC.md](SPEC.md) for full documentation.
@@ -190,10 +190,10 @@ Any git host works. Tag releases for stable coords; use a branch for rolling upd
 
 ```sh
 # consumer installs from a tag
-bbum source add my-lib git/url=https://github.com/org/my-task-lib git/tag=v1.0.0
+bbum source add my-lib git/url=https://github.com/hugoduncan/bb-task-lib git/tag=v1.0.0
 
 # consumer tracks master
-bbum source add my-lib git/url=https://github.com/org/my-task-lib git/branch=master
+bbum source add my-lib git/url=https://github.com/hugoduncan/bb-task-lib git/branch=master
 ```
 
 No special publishing step is required — the `bbum.edn` at the repo root is all bbum

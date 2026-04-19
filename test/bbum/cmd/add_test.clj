@@ -175,23 +175,52 @@
             "file must not have been written on conflict")))))
 
 (deftest add-preflight-file-conflict-test
-  (h/with-clean-env [root]
-    (fs/with-temp-dir [lib {:prefix "bbum-lib-"}]
-      (h/make-project! root)
-      (h/make-lib! (str lib) 'test-org/test-lib h/simple-tasks)
-      (h/add-project-source! root :test-lib {:local/path (str lib)})
+  (testing "pre-existing file inside .bbum/lib/ is overwritten — not a conflict"
+    ;; Files inside .bbum/lib/ are bbum-managed and safe to share across tasks
+    ;; from the same library. The install should succeed and update the file.
+    (h/with-clean-env [root]
+      (fs/with-temp-dir [lib {:prefix "bbum-lib-"}]
+        (h/make-project! root)
+        (h/make-lib! (str lib) 'test-org/test-lib h/simple-tasks)
+        (h/add-project-source! root :test-lib {:local/path (str lib)})
 
-      ;; Pre-create the destination file
-      (let [dest (str root "/.bbum/lib/test_org/test_lib/hello.clj")]
-        (fs/create-dirs (fs/parent dest))
-        (spit dest "existing content"))
+        ;; Pre-create the destination file with stale content
+        (let [dest (str root "/.bbum/lib/test_org/test_lib/hello.clj")]
+          (fs/create-dirs (fs/parent dest))
+          (spit dest "stale content"))
 
-      (testing "throws before modifying bb.edn"
-        (is (thrown? Exception
-              (bbum.cmd.add/run ["test-lib" "hello"])))
-        (let [bb-edn (config/read-bb-edn root)]
-          (is (empty? (:tasks bb-edn))
-              "bb.edn tasks must be untouched on file conflict"))))))
+        ;; Should succeed — overwrites the stale bbum-managed file
+        (bbum.cmd.add/run ["test-lib" "hello"])
+        (let [dest (str root "/.bbum/lib/test_org/test_lib/hello.clj")]
+          (is (not= "stale content" (slurp dest))
+              "file should be overwritten with source content"))))))
+
+(deftest add-shared-file-across-installs-test
+  (testing "installing a task when another installed task shares a file succeeds"
+    ;; This is the real-world case: task A and task B both declare util.clj.
+    ;; Installing A first then B (separately) should work — not conflict on util.clj.
+    (h/with-clean-env [root]
+      (fs/with-temp-dir [lib {:prefix "bbum-lib-"}]
+        (h/make-project! root)
+        (let [shared-file "src/test_org/test_lib/shared.clj"
+              task-a {:doc   "Task A"
+                      :files [shared-file "src/test_org/test_lib/a.clj"]
+                      :task  '{:doc "A" :requires ([test-org.test-lib.a :as a]) :task (a/run)}}
+              task-b {:doc   "Task B"
+                      :files [shared-file "src/test_org/test_lib/b.clj"]
+                      :task  '{:doc "B" :requires ([test-org.test-lib.b :as b]) :task (b/run)}}]
+          (h/make-lib! (str lib) 'test-org/test-lib {:task-a task-a :task-b task-b})
+          (h/add-project-source! root :test-lib {:local/path (str lib)})
+
+          ;; Install task-a first — installs shared.clj
+          (bbum.cmd.add/run ["test-lib" "task-a"])
+          (is (fs/exists? (str root "/.bbum/lib/test_org/test_lib/shared.clj")))
+
+          ;; Install task-b separately — shared.clj already exists, must not error
+          (bbum.cmd.add/run ["test-lib" "task-b"])
+          (let [bb-edn (config/read-bb-edn root)]
+            (is (contains? (:tasks bb-edn) 'task-b)
+                "task-b should be installed despite shared file already existing")))))))
 
 (deftest add-installs-dep-tasks-test
   (h/with-clean-env [root]

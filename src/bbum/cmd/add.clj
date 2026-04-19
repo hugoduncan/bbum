@@ -105,12 +105,17 @@
                         {:task task-kw})))))
 
   ;; File conflicts
-  (doseq [file-path (all-files task-set)]
-    (let [dest (install-path root file-path)]
-      (when (fs/exists? dest)
-        (throw (ex-info (str "File already exists: " dest
-                             " — cannot install without overwriting.")
-                        {:file file-path :dest dest}))))))
+  ;; Files already inside .bbum/lib/ were placed there by bbum and are safe to
+  ;; share across tasks from the same library — skip the conflict check for them.
+  ;; Only error when a file would overwrite something outside bbum's managed tree.
+  (let [lib-dir (str root "/.bbum/lib/")]
+    (doseq [file-path (all-files task-set)]
+      (let [dest (install-path root file-path)]
+        (when (and (fs/exists? dest)
+                   (not (str/starts-with? (str dest) lib-dir)))
+          (throw (ex-info (str "File already exists: " dest
+                               " — cannot install without overwriting.")
+                          {:file file-path :dest dest})))))))
 
 ;;; Apply install (only called after preflight passes)
 
@@ -124,7 +129,7 @@
         (throw (ex-info (str "Source file not found in library: " file-path)
                         {:src src})))
       (fs/create-dirs (fs/parent dest))
-      (fs/copy src dest))))
+      (fs/copy src dest {:replace-existing true}))))
 
 (defn- build-manifest-entries
   "Build the .bbum.edn :tasks entries for all tasks in task-set."

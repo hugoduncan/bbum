@@ -37,10 +37,10 @@ A coord identifies where a task library lives. Coords are specified as
 Examples:
 
 ```sh
-bbum source add my-lint   local/path=../my-task-lib
-bbum source add org-tasks git/url=https://github.com/hugoduncan/bb-task-lib git/branch=master
-bbum source add stable    git/url=https://github.com/hugoduncan/bb-task-lib git/tag=v1.2.0
-bbum source add pinned    git/url=https://github.com/hugoduncan/bb-task-lib git/sha=abc123def456
+bbum source add my-lint     local/path=../my-task-lib
+bbum source add bb-task-lib git/url=https://github.com/hugoduncan/bb-task-lib git/branch=master
+bbum source add stable      git/url=https://github.com/hugoduncan/bb-task-lib git/tag=v1.2.0
+bbum source add pinned      git/url=https://github.com/hugoduncan/bb-task-lib git/sha=abc123def456
 ```
 
 See [SPEC.md](SPEC.md) for full documentation.

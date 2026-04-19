@@ -134,6 +134,11 @@
       clojure.string/trim-newline
       (clojure.string/replace #"\n" (str "\n" indent-str))))
 
+(defn- ws-or-comment?
+  "True when node is whitespace (spaces, newlines) or a comment."
+  [node]
+  (or (n/whitespace? node) (n/comment? node)))
+
 (defn- z-append-map-entry
   "Append key k and value v to map-zloc.
    Detects existing sibling indentation and places the key on its own indented
@@ -153,17 +158,145 @@
           (z/append-child (n/whitespace-node indent))
           (z/append-child (z/node (z/of-string v-str)))))))
 
+;; ── Alphabetical insertion helpers ───────────────────────────────────────────
+
+(defn- z-map-keys-ordered
+  "Return the sexpr of each key in map-zloc in document order."
+  [map-zloc]
+  (loop [loc    (z/down map-zloc)
+         result []
+         is-key true]
+    (cond
+      (nil? loc)                        result
+      (ws-or-comment? (z/node loc))     (recur (z/right loc) result is-key)
+      is-key                            (recur (z/right loc) (conj result (z/sexpr loc)) false)
+      :else                             (recur (z/right loc) result true))))
+
+(defn- names-sorted?
+  "True when names (a seq of strings) are in non-decreasing alphabetical order."
+  [names]
+  (or (< (count names) 2)
+      (every? (fn [[a b]] (<= (compare a b) 0)) (partition 2 1 names))))
+
+(defn- prefix-insertion-point
+  "When new-name contains ':', look for existing task names that share the same
+   prefix (the part before the first ':') and return {:after name} or
+   {:before name} for the alphabetically correct position within that group.
+   Returns nil when no tasks share the prefix."
+  [existing-names new-name]
+  (let [prefix       (first (clojure.string/split new-name #":" 2))
+        prefix-tasks (filterv #(or (= % prefix)
+                                   (clojure.string/starts-with? % (str prefix ":")))
+                              existing-names)]
+    (when (seq prefix-tasks)
+      (let [before-new (filterv #(<= (compare % new-name) 0) prefix-tasks)]
+        (if (seq before-new)
+          {:after (last before-new)}
+          {:before (first prefix-tasks)})))))
+
+(defn- task-insertion-point
+  "Given the tasks map zloc and the symbol for the new task, return one of:
+     :append         — add at the end
+     {:after  name}  — insert after the entry whose key name is `name`
+     {:before name}  — insert before the entry whose key name is `name`"
+  [map-zloc new-sym]
+  (let [keys     (z-map-keys-ordered map-zloc)
+        names    (mapv name keys)
+        new-name (name new-sym)]
+    (cond
+      (empty? names)
+      :append
+
+      (names-sorted? names)
+      (let [before-new (filterv #(< (compare % new-name) 0) names)
+            after-new  (filterv #(> (compare % new-name) 0) names)]
+        (cond
+          (seq before-new) {:after  (last before-new)}
+          (seq after-new)  {:before (first after-new)}
+          :else            :append))
+
+      (clojure.string/includes? new-name ":")
+      (or (prefix-insertion-point names new-name) :append)
+
+      :else :append)))
+
+;; ── Positional zipper insertion ───────────────────────────────────────────────
+;;
+;; z/insert-left and z/insert-right inject automatic padding whitespace around
+;; every inserted node, corrupting indentation.  Instead we:
+;;   1. extract all existing entries as [key-sexpr value-string] in document order
+;;   2. splice the new entry at the computed position
+;;   3. rebuild the entire map string
+;;   4. z/replace the tasks-map node with the fresh parse
+;;
+;; Existing value strings are lifted verbatim from z/string so their internal
+;; formatting is preserved unchanged.
+
+(defn- z-map-entries-ordered
+  "Return [[key-sexpr value-string] …] in document order for map-zloc.
+   Whitespace and comment nodes are skipped."
+  [map-zloc]
+  (loop [loc    (z/down map-zloc)
+         result []
+         k      nil]
+    (cond
+      (nil? loc)                    result
+      (ws-or-comment? (z/node loc)) (recur (z/right loc) result k)
+      (nil? k)                      (recur (z/right loc) result (z/sexpr loc))
+      :else                         (recur (z/right loc) (conj result [k (z/string loc)]) nil))))
+
+(defn- z-insert-map-entry
+  "Insert key k with value v into map-zloc at the position AFTER after-name
+   (a string key name).  Pass nil as after-name to insert at the beginning.
+   Returns map-zloc with the node replaced."
+  [map-zloc k v after-name]
+  (let [map-str    (z/string map-zloc)
+        indent     (detect-task-indent map-str)
+        v-str      (format-task-value v indent)
+        entries    (z-map-entries-ordered (z/of-string map-str))
+        pos        (if (nil? after-name)
+                     0
+                     (inc (count (take-while #(not= (name (first %)) after-name) entries))))
+        [bef aft]  (split-at pos entries)
+        all-entries (concat bef [[k v-str]] aft)
+        new-map-str (str "{"
+                         (clojure.string/join ""
+                           (map (fn [[ek ev]]
+                                  (str "\n" indent (str ek) "\n" indent ev))
+                                all-entries))
+                         "}")]
+    (z/replace map-zloc (z/node (z/of-string new-map-str)))))
+
 (defn z-splice-tasks
   "Assoc each [sym task-def] from task-map into the :tasks map in the bb.edn
    top-level map zloc. Keys are coerced to symbols (babashka requires symbols).
-   Creates :tasks {} if absent. A newline is inserted before each new key.
-   Returns the top-level map zloc."
+   Creates :tasks {} if absent. New tasks are inserted alphabetically when
+   existing tasks are sorted; otherwise grouped by ':'-delimited prefix, or
+   appended. Returns the top-level map zloc."
   [zloc task-map]
   (reduce
    (fn [top [k v]]
      (let [sym       (symbol (name k))
            tasks-loc (z-get-or-create top :tasks {})]
-       (-> tasks-loc (z-append-map-entry sym v) z/up)))
+       (if (z/get tasks-loc sym)
+         ;; Existing key — replace value in-place, no position change
+         (-> tasks-loc (z-append-map-entry sym v) z/up)
+         ;; New key — determine the alphabetically correct insertion point
+         (let [point     (task-insertion-point tasks-loc sym)
+               ;; Convert {:before name} → after-name of the key that precedes it,
+               ;; or nil (insert at beginning) when the before-key is first.
+               after-name (cond
+                            (= :append point) :append
+                            (:after  point)   (:after point)
+                            (:before point)
+                            (let [names (mapv name (z-map-keys-ordered tasks-loc))
+                                  idx   (.indexOf ^java.util.List names (:before point))]
+                              (when (pos? idx) (nth names (dec idx))))
+                            :else :append)
+               new-tasks (if (= :append after-name)
+                           (z-append-map-entry tasks-loc sym v)
+                           (z-insert-map-entry tasks-loc sym v after-name))]
+           (z/up new-tasks)))))
    zloc
    task-map))
 

@@ -189,7 +189,10 @@
           result    (-> input z/of-string
                         (config/z-splice-tasks {'added {:doc "A"}})
                         z/root-string)]
-      (is (re-find #"\n  added\s+\n\s*\{" result)
+      ;; Key is on one indented line; value opens on the next indented line.
+      ;; Allow optional trailing whitespace between the key token and the newline
+      ;; (z/append-child adds a padding space; rebuild-based insertion does not).
+      (is (re-find #"\n\s+added[^\n]*\n\s*\{" result)
           "value must follow the key on its own indented line")))
 
   (testing "complex task value has aligned map keys"
@@ -310,3 +313,88 @@
                      (config/z-ensure-path ".bbum/lib")
                      z/root-string)]
       (is (clojure.string/starts-with? result ";; project")))))
+
+;;; z-splice-tasks — alphabetical insertion ordering
+
+(defn- splice-task-keys
+  "Helper: splice task-map into input bb-edn string and return the task keys
+   in document order (as symbols)."
+  [input task-map]
+  (let [^String result (-> input z/of-string
+                           (config/z-splice-tasks task-map)
+                           z/root-string)]
+    (@#'bbum.config/z-map-keys-ordered
+     (-> result z/of-string (z/get :tasks)))))
+
+(deftest z-splice-tasks-alphabetical-order-test
+  (testing "inserts task in alphabetical position when existing tasks are sorted"
+    ;; existing: [bar foo]  →  inserting cat  →  [bar cat foo]
+    (let [input "{:tasks {bar {:doc \"B\"}\n         foo {:doc \"F\"}}}"
+          keys  (splice-task-keys input {'cat {:doc "C"}})]
+      (is (= '[bar cat foo] keys))))
+
+  (testing "inserts task at beginning when it sorts before all existing tasks"
+    ;; existing: [bar foo]  →  inserting aaa  →  [aaa bar foo]
+    (let [input "{:tasks {bar {:doc \"B\"}\n         foo {:doc \"F\"}}}"
+          keys  (splice-task-keys input {'aaa {:doc "A"}})]
+      (is (= '[aaa bar foo] keys))))
+
+  (testing "inserts task at end when it sorts after all existing tasks"
+    ;; existing: [bar foo]  →  inserting zoo  →  [bar foo zoo]
+    (let [input "{:tasks {bar {:doc \"B\"}\n         foo {:doc \"F\"}}}"
+          keys  (splice-task-keys input {'zoo {:doc "Z"}})]
+      (is (= '[bar foo zoo] keys))))
+
+  (testing "single existing task is treated as sorted; new task inserted by alpha"
+    ;; existing: [foo]  →  inserting bar  →  [bar foo]
+    (let [input "{:tasks {foo {:doc \"F\"}}}"
+          keys  (splice-task-keys input {'bar {:doc "B"}})]
+      (is (= '[bar foo] keys)))))
+
+(deftest z-splice-tasks-unsorted-prefix-grouping-test
+  (testing "new task with prefix inserted after last matching-prefix task"
+    ;; existing (unsorted): [zoo bar:check]  →  inserting bar:fix  →  [zoo bar:check bar:fix]
+    (let [input "{:tasks {zoo {:doc \"Z\"}\n         bar:check {:doc \"BC\"}}}"
+          keys  (splice-task-keys input {'bar:fix {:doc "BF"}})]
+      (is (= '[zoo bar:check bar:fix] keys))))
+
+  (testing "new prefix task inserted before first prefix task when it sorts first"
+    ;; existing (unsorted): [zoo bar:fix]  →  inserting bar:check  →  [zoo bar:check bar:fix]
+    (let [input "{:tasks {zoo {:doc \"Z\"}\n         bar:fix {:doc \"BF\"}}}"
+          keys  (splice-task-keys input {'bar:check {:doc "BC"}})]
+      (is (= '[zoo bar:check bar:fix] keys))))
+
+  (testing "prefix task inserted at alphabetically-correct position within group"
+    ;; existing (unsorted): [zoo bar:aa bar:zz]  →  inserting bar:mm  →  [zoo bar:aa bar:mm bar:zz]
+    (let [input "{:tasks {zoo {:doc \"Z\"}\n         bar:aa {:doc \"BA\"}\n         bar:zz {:doc \"BZ\"}}}"
+          keys  (splice-task-keys input {'bar:mm {:doc "BM"}})]
+      (is (= '[zoo bar:aa bar:mm bar:zz] keys))))
+
+  (testing "prefix task with no matching prefix falls back to append"
+    ;; existing (unsorted): [zoo bar:check]  →  inserting qux:run  →  [..., qux:run]
+    (let [input "{:tasks {zoo {:doc \"Z\"}\n         bar:check {:doc \"BC\"}}}"
+          keys  (splice-task-keys input {'qux:run {:doc "QR"}})]
+      (is (= 'qux:run (last keys)))))
+
+  (testing "non-prefixed task in unsorted map is appended"
+    ;; existing (unsorted): [foo bar]  →  inserting mid  →  [foo bar mid]
+    (let [input "{:tasks {foo {:doc \"F\"}\n         bar {:doc \"B\"}}}"
+          keys  (splice-task-keys input {'mid {:doc "M"}})]
+      (is (= '[foo bar mid] keys))))
+
+  (testing "root task (no colon) treated as part of prefix group"
+    ;; existing (unsorted): [zoo bar]  →  inserting bar:check  →  [zoo bar bar:check]
+    (let [input "{:tasks {zoo {:doc \"Z\"}\n         bar {:doc \"B\"}}}"
+          keys  (splice-task-keys input {'bar:check {:doc "BC"}})]
+      (is (= '[zoo bar bar:check] keys))))
+
+  (testing "task values are correct after positional insertion"
+    ;; Regression: inserting at non-end position must not corrupt values
+    (let [input  "{:tasks {bar {:doc \"B\"}\n         foo {:doc \"F\"}}}"
+          result (-> input z/of-string
+                     (config/z-splice-tasks {'cat {:doc "C" :task '(cat/run)}})
+                     z/root-string)
+          tasks  (-> result z/of-string (z/get :tasks) z/sexpr)]
+      (is (= {:doc "B"} (get tasks 'bar)))
+      (is (= {:doc "F"} (get tasks 'foo)))
+      (is (= {:doc "C" :task '(cat/run)} (get tasks 'cat))))))

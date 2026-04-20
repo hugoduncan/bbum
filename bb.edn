@@ -18,7 +18,8 @@
      'bbum.config-test
      'bbum.cmd.add-test
      'bbum.cmd.remove-test
-     'bbum.cmd.source-test)
+     'bbum.cmd.source-test
+     'bbum.cmd.update-test)
     (let
      [r (t/run-all-tests (re-pattern "bbum\\..*-test"))]
      (System/exit (if (pos? (+ (:fail r) (:error r))) 1 0))))},

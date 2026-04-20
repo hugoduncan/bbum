@@ -41,13 +41,14 @@
 
 (defn- update-source-tasks!
   "Fetch source once, then update all tasks-to-update from it.
-   Returns updated {:manifest-tasks :bb-tasks}.
+   Returns updated {:manifest-tasks :bb-task-entries}.
+   :bb-task-entries is a map of installed-sym → task-def for z-splice-tasks.
    Uses config/lib-task-kw so aliased tasks are looked up by their library name."
-  [root source-coord new-lock task-kws all-tasks bb-edn]
+  [root source-coord new-lock task-kws all-tasks]
   (source/with-source-dir source-coord
     (fn [src-dir]
       (let [lib-manifest (config/read-lib-manifest src-dir)]
-        (reduce (fn [{:keys [manifest-tasks bb-tasks]} installed-kw]
+        (reduce (fn [{:keys [manifest-tasks bb-task-entries]} installed-kw]
                   (let [task-rec (get manifest-tasks installed-kw)
                         lib-kw   (config/lib-task-kw installed-kw task-rec)
                         task-def (get-in lib-manifest [:tasks lib-kw])]
@@ -56,11 +57,9 @@
                                       {:installed installed-kw :lib-task lib-kw})))
                     ;; Re-copy files (overwrite)
                     (copy-task-files! root src-dir task-def)
-                    ;; Splice updated task entry under the installed (possibly aliased) name
-                    ;; bb.edn requires symbol keys; keyword→symbol here matches splice-tasks.
-                    {:manifest-tasks (assoc-in manifest-tasks [installed-kw :lock] new-lock)
-                     :bb-tasks       (assoc bb-tasks (symbol (name installed-kw)) (:task task-def))}))
-                {:manifest-tasks all-tasks :bb-tasks (:tasks bb-edn {})}
+                    {:manifest-tasks  (assoc-in manifest-tasks [installed-kw :lock] new-lock)
+                     :bb-task-entries (assoc bb-task-entries installed-kw (:task task-def))}))
+                {:manifest-tasks all-tasks :bb-task-entries {}}
                 task-kws)))))
 
 ;;; Entry point
@@ -72,7 +71,6 @@
         root        (config/project-root)
         manifest    (config/read-project-manifest root)
         global      (config/read-global-config)
-        bb-edn      (config/read-bb-edn root)
         all-tasks   (:tasks manifest {})
         all-sources (merge (:sources global {}) (:sources manifest {}))]
 
@@ -109,19 +107,20 @@
 
           ;; Process each source group with one fetch
           (let [final-state
-                (reduce (fn [{:keys [manifest-tasks bb-tasks]} [src-kw task-pairs]]
-                          (let [task-kws    (mapv key task-pairs)
-                                src-coord   (get all-sources src-kw)
-                                new-lock    (get new-locks src-kw src-coord)]
-                            (let [result (update-source-tasks!
-                                          root src-coord new-lock task-kws manifest-tasks bb-edn)]
-                              {:manifest-tasks (:manifest-tasks result)
-                               :bb-tasks       (:bb-tasks result)})))
-                        {:manifest-tasks all-tasks :bb-tasks (:tasks bb-edn {})}
+                (reduce (fn [{:keys [manifest-tasks bb-task-entries]} [src-kw task-pairs]]
+                          (let [task-kws  (mapv key task-pairs)
+                                src-coord (get all-sources src-kw)
+                                new-lock  (get new-locks src-kw src-coord)
+                                result    (update-source-tasks!
+                                           root src-coord new-lock task-kws manifest-tasks)]
+                            {:manifest-tasks  (:manifest-tasks result)
+                             :bb-task-entries (merge bb-task-entries (:bb-task-entries result))}))
+                        {:manifest-tasks all-tasks :bb-task-entries {}}
                         by-source)]
 
-            ;; Persist updated bb.edn and manifest
-            (config/write-bb-edn root (assoc bb-edn :tasks (:bb-tasks final-state)))
+            ;; Persist updated bb.edn via zipper — preserves task order and formatting
+            (config/update-bb-edn! root
+              (fn [z] (config/z-splice-tasks z (:bb-task-entries final-state))))
             (config/write-project-manifest root
               (assoc manifest :tasks (:manifest-tasks final-state)))
 
